@@ -38,6 +38,8 @@ private:
     static std::string upper(std::string value);
     static std::uint32_t parseNumber(const std::string& token);
     std::string flags() const;
+    std::string okResult() const;
+    std::string flagsResult() const;
     void updateZeroSign(std::uint16_t value);
     
     void movsb();
@@ -104,6 +106,7 @@ private:
     bool carry_ = false;
     bool sign_ = false;
     bool overflow_ = false;
+    bool debug_enabled_ = true;
     
     // Disk mapping
     std::unordered_map<char, size_t> disk_map_;
