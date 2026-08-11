@@ -68,15 +68,25 @@ void DualConsole::printCpu(const std::string& msg) {
     if (cpu_history_.size() > MAX_HISTORY) {
         cpu_history_.pop_front();
     }
+    std::cout << msg << '\n';
+    std::cout.flush();
 }
 
 void DualConsole::addCpuHistory(const std::string& cmd, const std::string& result) {
-    // Split result into lines for better display
-    std::string display = cmd;
-    if (!result.empty()) {
-        display += "\n  " + result;
+    cpu_history_.push_back(cmd);
+    if (cpu_history_.size() > MAX_HISTORY) {
+        cpu_history_.pop_front();
     }
-    printCpu(display);
+    if (!result.empty()) {
+        cpu_history_.push_back("  " + result);
+        if (cpu_history_.size() > MAX_HISTORY) {
+            cpu_history_.pop_front();
+        }
+        std::cout << "  " << result << '\n';
+    } else {
+        std::cout << "  OK\n";
+    }
+    std::cout.flush();
 }
 
 std::string DualConsole::getCpuInput() {
