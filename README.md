@@ -24,8 +24,11 @@ Every entered command is executed immediately and the emulator now prints the re
 - `RESET` — clear CPU registers, flags, and storage.
 - `DEBUG ON`, `DEBUG OFF`, `DBG ON`, `DBG OFF` — enable or disable debug output; it is enabled by default.
 - `MOV R V` — copy a 16-bit value or another register into register `R`.
-- `ADD R V`, `SUB R V`, `CMP R V` — arithmetic and comparison.
+- `XCHG R1 R2` — exchange two registers.
+- `PUSH V`, `POP R` — use the 16-bit stack through `SP`.
+- `ADD R V`, `SUB R V`, `CMP R V`, `NEG R`, `MUL V`, `DIV V` — arithmetic and comparison.
 - `INC R`, `DEC R` — increment or decrement a register.
+- `NOP` — execute a no-operation instruction.
 - `LOAD R ADDR` — load a 16-bit word from storage into `R`.
 - `STORE R ADDR` — store register `R` as a 16-bit word.
 - `PEEK ADDR`, `POKE ADDR V` — read or write one byte.

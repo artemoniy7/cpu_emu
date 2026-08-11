@@ -223,6 +223,10 @@ std::string Cpu::execute(const std::string& line) {
             return writeDisk(args[1], parseNumber(args[2]), data);
         }
         
+        if (op == "NOP" && args.size() == 1) {
+            return debug_enabled_ ? "No operation" : "OK";
+        }
+
         // Арифметические операции
         if ((op == "MOV" || op == "ADD" || op == "SUB" || op == "CMP") && args.size() == 3) {
             auto& dst = reg(args[1]);
@@ -251,6 +255,28 @@ std::string Cpu::execute(const std::string& line) {
             return okResult();
         }
         
+        if (op == "XCHG" && args.size() == 3) {
+            auto& left = reg(args[1]);
+            auto& right = reg(args[2]);
+            std::swap(left, right);
+            return okResult();
+        }
+
+        if (op == "PUSH" && args.size() == 2) {
+            auto& sp = reg("SP");
+            sp = static_cast<std::uint16_t>(sp - 2);
+            storage_.write16(sp, readValue(args[1]));
+            return okResult();
+        }
+
+        if (op == "POP" && args.size() == 2) {
+            auto& dst = reg(args[1]);
+            auto& sp = reg("SP");
+            dst = storage_.read16(sp);
+            sp = static_cast<std::uint16_t>(sp + 2);
+            return okResult();
+        }
+
         // Инкремент/декремент
         if ((op == "INC" || op == "DEC") && args.size() == 2) {
             auto& value = reg(args[1]);
@@ -281,6 +307,39 @@ std::string Cpu::execute(const std::string& line) {
             carry_ = false;
             overflow_ = false;
             updateZeroSign(dst);
+            return okResult();
+        }
+
+        if (op == "NEG" && args.size() == 2) {
+            auto& dst = reg(args[1]);
+            carry_ = dst != 0;
+            overflow_ = dst == 0x8000;
+            dst = static_cast<std::uint16_t>(-dst);
+            updateZeroSign(dst);
+            return okResult();
+        }
+
+        if (op == "MUL" && args.size() == 2) {
+            const auto result = static_cast<std::uint32_t>(reg("AX")) * readValue(args[1]);
+            reg("AX") = static_cast<std::uint16_t>(result & 0xffff);
+            reg("DX") = static_cast<std::uint16_t>((result >> 16) & 0xffff);
+            carry_ = overflow_ = reg("DX") != 0;
+            updateZeroSign(reg("AX"));
+            return okResult();
+        }
+
+        if (op == "DIV" && args.size() == 2) {
+            const auto divisor = readValue(args[1]);
+            if (divisor == 0) return "Error: division by zero";
+
+            const auto dividend = (static_cast<std::uint32_t>(reg("DX")) << 16) | reg("AX");
+            const auto quotient = dividend / divisor;
+            if (quotient > 0xffff) return "Error: division overflow";
+
+            reg("AX") = static_cast<std::uint16_t>(quotient);
+            reg("DX") = static_cast<std::uint16_t>(dividend % divisor);
+            carry_ = overflow_ = false;
+            updateZeroSign(reg("AX"));
             return okResult();
         }
         
@@ -1221,6 +1280,8 @@ std::string Cpu::help() const {
            "  RESET             - Reset CPU and clear memory\n"
            "\nDATA MOVEMENT:\n"
            "  MOV R, V          - Move value to register\n"
+           "  XCHG R1, R2       - Exchange two registers\n"
+           "  PUSH V / POP R    - Use the stack via SP\n"
            "  LOAD R, ADDR      - Load from memory\n"
            "  STORE R, ADDR     - Store to memory\n"
            "  PEEK ADDR         - Read byte\n"
@@ -1230,7 +1291,8 @@ std::string Cpu::help() const {
            "  INC/DEC R         - Increment/Decrement\n"
            "  CMP R, V          - Compare\n"
            "  AND/OR/XOR R, V   - Bitwise operations\n"
-           "  NOT R             - Bitwise NOT\n"
+           "  NOT/NEG R         - Bitwise NOT / two's-complement negate\n"
+           "  MUL V / DIV V     - Unsigned AX multiply/divide with DX\n"
            "  TEST R, V         - Test bits\n"
            "  SHL/SHR R, V      - Shift left/right\n"
            "  ROL/ROR R, V      - Rotate left/right\n"
@@ -1260,5 +1322,5 @@ std::string Cpu::help() const {
            "NUMBERS: decimal or 0xHEX\n"
            "MEMORY: [address] or register\n"
            "DISKS: C:, D:, E:, F:\n"
-           "\nSYSTEM: EXIT, QUIT, CLEAR, CLS\n";
+           "\nSYSTEM: NOP, EXIT, QUIT, CLEAR, CLS\n";
 }
