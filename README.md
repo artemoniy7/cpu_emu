@@ -15,13 +15,14 @@ cmake --build build
 ./build/cpu_emu
 ```
 
-Every entered command is executed immediately and the emulator now prints the result directly under the prompt while keeping command history for the optional full-screen renderer. Files and programs are persisted into the emulated disk images, so they can be created, read back, and run later from inside the emulator.
+Every entered command is executed immediately and the emulator now prints the result directly under the prompt while keeping command history for the optional full-screen renderer. Debug output is enabled by default; use `DEBUG OFF` to hide flag/details-only responses while keeping operational output such as memory, disk, and plain `PRINT` results. Files and programs are persisted into the emulated disk images, so they can be created, read back, and run later from inside the emulator.
 
 ## Commands
 
 - `HELP` — show command list.
 - `REGS` — show all registers and flags.
 - `RESET` — clear CPU registers, flags, and storage.
+- `DEBUG ON`, `DEBUG OFF`, `DBG ON`, `DBG OFF` — enable or disable debug output; it is enabled by default.
 - `MOV R V` — copy a 16-bit value or another register into register `R`.
 - `ADD R V`, `SUB R V`, `CMP R V` — arithmetic and comparison.
 - `INC R`, `DEC R` — increment or decrement a register.
