@@ -21,6 +21,7 @@ Cpu::Cpu(Storage& storage, std::vector<Disk*>& disks)
     char letter = 'C';
     for (size_t i = 0; i < disks_.size() && i < 26; ++i) {
         disk_map_[letter] = i;
+        filesystems_[letter];
         if (letter == 'C') letter = 'D';
         else letter++;
     }
@@ -112,6 +113,63 @@ std::string Cpu::execute(const std::string& line) {
             return "CPU and storage reset";
         }
         
+        // DOS-like file system commands
+        if (args.size() == 1 && args[0].size() == 2 && args[0][1] == ':') {
+            const char drive = static_cast<char>(std::toupper(static_cast<unsigned char>(args[0][0])));
+            if (disk_map_.find(drive) == disk_map_.end()) {
+                return "Invalid drive specification";
+            }
+            current_drive_ = drive;
+            return currentDriveName();
+        }
+
+        if ((op == "DIR" || op == "LS") && args.size() <= 2) {
+            return listDirectory(args.size() == 2 ? args[1] : ".");
+        }
+
+        if ((op == "CD" || op == "CHDIR") && args.size() <= 2) {
+            return args.size() == 1 ? currentDriveName() : changeDirectory(args[1]);
+        }
+
+        if ((op == "MD" || op == "MKDIR") && args.size() == 2) {
+            return makeDirectory(args[1]);
+        }
+
+        if ((op == "RD" || op == "RMDIR") && args.size() == 2) {
+            return removeDirectory(args[1]);
+        }
+
+        if ((op == "DEL" || op == "ERASE") && args.size() == 2) {
+            return deleteFile(args[1]);
+        }
+
+        if (op == "TYPE" && args.size() == 2) {
+            return readFile(args[1]);
+        }
+
+        if (op == "COPY" && args.size() == 3) {
+            return copyFile(args[1], args[2]);
+        }
+
+        if (op == "ECHO" && args.size() >= 2) {
+            auto redir = std::find(args.begin(), args.end(), ">");
+            bool append = false;
+            if (redir == args.end()) {
+                redir = std::find(args.begin(), args.end(), ">>");
+                append = redir != args.end();
+            }
+            if (redir != args.end()) {
+                const auto index = static_cast<std::size_t>(std::distance(args.begin(), redir));
+                if (index + 1 >= args.size()) return "The syntax of the command is incorrect.";
+                std::string text = joinArgs(args, 1);
+                const auto cut = text.find(append ? ">>" : ">");
+                if (cut != std::string::npos) text = text.substr(0, cut);
+                while (!text.empty() && text.back() == ' ') text.pop_back();
+                return writeFile(args[index + 1], text + "\n", append);
+            }
+            return joinArgs(args, 1);
+        }
+
         // Disk operations
         if (op == "DISKS") {
             return diskInfo();
@@ -452,6 +510,170 @@ std::string Cpu::execute(const std::string& line) {
     }
 }
 
+std::string Cpu::currentDriveName() const {
+    return formatPath(current_drive_, currentFs().cwd);
+}
+
+Cpu::DriveFs& Cpu::currentFs() {
+    return filesystems_[current_drive_];
+}
+
+const Cpu::DriveFs& Cpu::currentFs() const {
+    return filesystems_.at(current_drive_);
+}
+
+std::vector<std::string> Cpu::normalizePath(const std::string& path) const {
+    std::vector<std::string> parts;
+    std::string rest = path;
+    if (rest.size() >= 2 && rest[1] == ':') {
+        rest = rest.substr(2);
+    } else {
+        parts = currentFs().cwd;
+    }
+    if (!rest.empty() && (rest[0] == '\\' || rest[0] == '/')) {
+        parts.clear();
+        rest.erase(0, 1);
+    }
+    std::replace(rest.begin(), rest.end(), '/', '\\');
+    std::stringstream ss(rest);
+    std::string item;
+    while (std::getline(ss, item, '\\')) {
+        if (item.empty() || item == ".") continue;
+        if (item == "..") {
+            if (!parts.empty()) parts.pop_back();
+            continue;
+        }
+        parts.push_back(upper(item));
+    }
+    return parts;
+}
+
+std::string Cpu::formatPath(char drive, const std::vector<std::string>& parts) const {
+    std::string out;
+    out += drive;
+    out += ":\\";
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        if (i) out += "\\";
+        out += parts[i];
+    }
+    return out;
+}
+
+Cpu::FsNode* Cpu::resolveNode(const std::string& path) {
+    auto parts = normalizePath(path);
+    FsNode* node = &currentFs().root;
+    for (const auto& part : parts) {
+        auto it = node->children.find(part);
+        if (it == node->children.end()) return nullptr;
+        node = it->second.get();
+    }
+    return node;
+}
+
+const Cpu::FsNode* Cpu::resolveNode(const std::string& path) const {
+    return const_cast<Cpu*>(this)->resolveNode(path);
+}
+
+Cpu::FsNode* Cpu::resolveParent(const std::string& path, std::string& leaf) {
+    auto parts = normalizePath(path);
+    if (parts.empty()) return nullptr;
+    leaf = parts.back();
+    parts.pop_back();
+    FsNode* node = &currentFs().root;
+    for (const auto& part : parts) {
+        auto it = node->children.find(part);
+        if (it == node->children.end() || !it->second->directory) return nullptr;
+        node = it->second.get();
+    }
+    return node;
+}
+
+std::string Cpu::listDirectory(const std::string& path) const {
+    const FsNode* node = resolveNode(path);
+    if (!node) return "File Not Found";
+    if (!node->directory) return path;
+    std::ostringstream out;
+    out << " Directory of " << currentDriveName() << "\n\n";
+    out << "<DIR>          .\n<DIR>          ..\n";
+    for (const auto& [name, child] : node->children) {
+        if (child->directory) out << "<DIR>          " << name << '\n';
+        else out << std::setw(14) << std::setfill(' ') << child->content.size() << " " << name << '\n';
+    }
+    return out.str();
+}
+
+std::string Cpu::changeDirectory(const std::string& path) {
+    FsNode* node = resolveNode(path);
+    if (!node || !node->directory) return "Invalid directory";
+    currentFs().cwd = normalizePath(path);
+    return currentDriveName();
+}
+
+std::string Cpu::makeDirectory(const std::string& path) {
+    std::string leaf;
+    FsNode* parent = resolveParent(path, leaf);
+    if (!parent) return "Path not found";
+    if (parent->children.count(leaf)) return "A subdirectory or file already exists";
+    auto node = std::make_unique<FsNode>();
+    node->directory = true;
+    parent->children[leaf] = std::move(node);
+    return "Directory created";
+}
+
+std::string Cpu::removeDirectory(const std::string& path) {
+    std::string leaf;
+    FsNode* parent = resolveParent(path, leaf);
+    if (!parent) return "Path not found";
+    auto it = parent->children.find(leaf);
+    if (it == parent->children.end() || !it->second->directory) return "Invalid directory";
+    if (!it->second->children.empty()) return "The directory is not empty";
+    parent->children.erase(it);
+    return "Directory removed";
+}
+
+std::string Cpu::writeFile(const std::string& path, const std::string& content, bool append) {
+    std::string leaf;
+    FsNode* parent = resolveParent(path, leaf);
+    if (!parent) return "Path not found";
+    auto& slot = parent->children[leaf];
+    if (!slot) { slot = std::make_unique<FsNode>(); slot->directory = false; }
+    if (slot->directory) return "Access denied";
+    if (append) slot->content += content; else slot->content = content;
+    return "1 file(s) written";
+}
+
+std::string Cpu::readFile(const std::string& path) const {
+    const FsNode* node = resolveNode(path);
+    if (!node || node->directory) return "File Not Found";
+    return node->content;
+}
+
+std::string Cpu::deleteFile(const std::string& path) {
+    std::string leaf;
+    FsNode* parent = resolveParent(path, leaf);
+    if (!parent) return "Path not found";
+    auto it = parent->children.find(leaf);
+    if (it == parent->children.end() || it->second->directory) return "File Not Found";
+    parent->children.erase(it);
+    return "1 file(s) deleted";
+}
+
+std::string Cpu::copyFile(const std::string& from, const std::string& to) {
+    const FsNode* src = resolveNode(from);
+    if (!src || src->directory) return "File Not Found";
+    const auto result = writeFile(to, src->content, false);
+    return result == "1 file(s) written" ? "1 file(s) copied" : result;
+}
+
+std::string Cpu::joinArgs(const std::vector<std::string>& args, std::size_t first) const {
+    std::string out;
+    for (std::size_t i = first; i < args.size(); ++i) {
+        if (i > first) out += ' ';
+        out += args[i];
+    }
+    return out;
+}
+
 // Disk operations implementation
 std::string Cpu::diskInfo() const {
     std::ostringstream out;
@@ -774,6 +996,16 @@ void Cpu::setFlagsForComparison(int result) {
 
 std::string Cpu::help() const {
     return "===== 16-bit CPU Emulator with Real Disk Support =====\n"
+           "\nDOS-LIKE FILE SYSTEM:\n"
+           "  C: / D: / E: / F: - Switch current drive\n"
+           "  DIR [PATH]        - List files and directories\n"
+           "  CD [PATH]         - Show/change current directory\n"
+           "  MD/MKDIR PATH     - Create directory\n"
+           "  RD/RMDIR PATH     - Remove empty directory\n"
+           "  ECHO TEXT > FILE  - Write file, >> appends\n"
+           "  TYPE FILE         - Print file contents\n"
+           "  COPY SRC DST      - Copy file\n"
+           "  DEL/ERASE FILE    - Delete file\n"
            "\nDISK OPERATIONS:\n"
            "  DISKS             - Show all available disks\n"
            "  FORMAT X          - Format disk X (C, D, E, or F)\n"
