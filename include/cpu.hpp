@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <map>
+#include <memory>
 
 class Cpu {
 public:
@@ -56,6 +58,45 @@ private:
     std::string readDisk(const std::string& diskName, uint32_t sector);
     std::string writeDisk(const std::string& diskName, uint32_t sector, const std::string& data);
 
+    struct FsNode {
+        bool directory = true;
+        std::string content;
+        std::map<std::string, std::unique_ptr<FsNode>> children;
+    };
+
+    struct DriveFs {
+        FsNode root;
+        std::vector<std::string> cwd;
+    };
+
+    std::string currentDriveName() const;
+    DriveFs& currentFs();
+    const DriveFs& currentFs() const;
+    FsNode* resolveNode(const std::string& path);
+    const FsNode* resolveNode(const std::string& path) const;
+    FsNode* resolveParent(const std::string& path, std::string& leaf);
+    std::vector<std::string> normalizePath(const std::string& path) const;
+    std::string formatPath(char drive, const std::vector<std::string>& parts) const;
+    std::string listDirectory(const std::string& path) const;
+    std::string changeDirectory(const std::string& path);
+    std::string makeDirectory(const std::string& path);
+    std::string removeDirectory(const std::string& path);
+    std::string writeFile(const std::string& path, const std::string& content, bool append);
+    std::string readFile(const std::string& path) const;
+    std::string deleteFile(const std::string& path);
+    std::string copyFile(const std::string& from, const std::string& to);
+    std::string joinArgs(const std::vector<std::string>& args, std::size_t first) const;
+    std::string createProgram(const std::string& path);
+    std::string appendProgramLine(const std::string& path, const std::string& command);
+    std::string runProgram(const std::string& path);
+    void persistCurrentFs();
+    void persistFs(char drive);
+    void loadFilesystemsFromDisks();
+    void serializeNode(std::ostringstream& out, const FsNode& node, const std::string& path) const;
+    void deserializeFs(char drive, const std::string& data);
+    static std::string hexEncode(const std::string& data);
+    static std::string hexDecode(const std::string& hex);
+
     Storage& storage_;
     std::vector<Disk*>& disks_;
     std::array<std::uint16_t, RegisterCount> registers_{};
@@ -66,4 +107,6 @@ private:
     
     // Disk mapping
     std::unordered_map<char, size_t> disk_map_;
+    std::map<char, DriveFs> filesystems_;
+    char current_drive_ = 'C';
 };

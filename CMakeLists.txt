@@ -9,6 +9,8 @@ add_executable(cpu_emu
     src/main.cpp
     src/cpu.cpp
     src/storage.cpp
+    src/disk.cpp
+    src/dual_console.cpp
 )
 
 target_include_directories(cpu_emu PRIVATE include)
