@@ -3,13 +3,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <vector>
+#include <fstream>
 
 class Storage {
 public:
     static constexpr std::size_t kSizeBytes = 10 * 1024 * 1024;
 
-    Storage();
+    Storage(const std::string& filename = "memory.bin");
+    ~Storage();
 
     std::uint8_t read8(std::uint32_t address) const;
     std::uint16_t read16(std::uint32_t address) const;
@@ -20,6 +21,9 @@ public:
 
 private:
     void checkAddress(std::uint32_t address, std::size_t width) const;
+    void ensureFileSize() const;
+    void flush() const;
 
-    std::vector<std::uint8_t> memory_;
+    std::string filename_;
+    mutable std::fstream file_;
 };
