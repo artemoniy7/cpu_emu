@@ -44,6 +44,7 @@ private:
     std::string okResult() const;
     std::string flagsResult() const;
     void updateZeroSign(std::uint16_t value);
+    void adjustStringIndex(const std::string& register_name, std::uint16_t width);
     
     void movsb();
     void movsw();
@@ -94,6 +95,8 @@ private:
     std::string joinArgs(const std::vector<std::string>& args, std::size_t first) const;
     std::string createProgram(const std::string& path);
     std::string appendProgramLine(const std::string& path, const std::string& command);
+    std::string writeProgramBlock(const std::string& path, const std::string& block, bool append);
+    static std::vector<std::string> splitProgramBlock(const std::string& block);
     std::string runProgram(const std::string& path);
     void persistCurrentFs();
     void persistFs(char drive);
@@ -111,6 +114,8 @@ private:
     bool carry_ = false;
     bool sign_ = false;
     bool overflow_ = false;
+    bool direction_ = false;
+    std::array<std::uint8_t, 256> ports_{};
     bool debug_enabled_ = true;
     
     // Disk mapping

@@ -15,7 +15,7 @@ cmake --build build
 ./build/cpu_emu
 ```
 
-Every entered command is executed immediately and the emulator now prints the result directly under the prompt while keeping command history for the optional full-screen renderer. Debug output is enabled by default; use `DEBUG OFF` to hide flag/details-only responses while keeping operational output such as memory, disk, and plain `PRINT` results. Files and programs are persisted into the emulated disk images, so they can be created, read back, and run later from inside the emulator.
+Every entered command is executed immediately and the emulator now prints the result directly under the prompt while keeping command history for the optional full-screen renderer. Debug output is enabled by default; use `DEBUG OFF` to hide service responses and traces completely while keeping real output such as `PRINT`, `PEEK`, `DUMP`, `TYPE`, directory listings, disk reads, and `HELP`. Files and programs are persisted into the emulated disk images, so they can be created, read back, and run later from inside the emulator.
 
 ## Commands
 
@@ -26,10 +26,12 @@ Every entered command is executed immediately and the emulator now prints the re
 - `MOV R V` — copy a 16-bit value or another register into register `R`.
 - `XCHG R1 R2` — exchange two registers.
 - `PUSH V`, `POP R` — use the 16-bit stack through `SP`.
-- `ADD R V`, `SUB R V`, `CMP R V`, `NEG R`, `MUL V`, `DIV V` — arithmetic and comparison.
+- `ADD R V`, `ADC R V`, `SUB R V`, `SBB R V`, `CMP R V`, `NEG R`, `MUL V`, `IMUL V`, `DIV V`, `IDIV V` — arithmetic and comparison with carry/borrow and signed/unsigned multiply/divide.
 - `INC R`, `DEC R` — increment or decrement a register.
-- `NOP` — execute a no-operation instruction.
+- `CLC`, `STC`, `CMC`, `CLD`, `STD` — realistic flag-control instructions for carry and string direction.
+- `NOP`, `HLT` — no-operation and simulated halt instructions.
 - `LOAD R ADDR` — load a 16-bit word from storage into `R`.
+- `IN R PORT`, `OUT PORT V` — read/write byte-sized I/O ports, like a simple hardware bus.
 - `STORE R ADDR` — store register `R` as a 16-bit word.
 - `PEEK ADDR`, `POKE ADDR V` — read or write one byte.
 - `DUMP ADDR LEN` — print a memory range.
@@ -37,11 +39,63 @@ Every entered command is executed immediately and the emulator now prints the re
 - `DIR [PATH]`, `CD [PATH]`, `MD/MKDIR PATH`, `RD/RMDIR PATH` — DOS-like directory work.
 - `ECHO TEXT > FILE`, `TYPE FILE`, `COPY SRC DST`, `DEL FILE` — DOS-like file work.
 - `NEW FILE`, `APPEND FILE CMD`, `RUN/EXEC FILE` — create, store on disk, load, and run emulator programs.
+- `PROGRAM FILE = CMD | CMD | ...`, `SCRIPT FILE = ...`, `BATCH FILE = ...` — write a whole program in one line; `APPENDPROGRAM FILE CMD | CMD` appends several lines.
+- Program files can use `LABEL:`, `JMP/JE/JNE/... LABEL`, `CALL LABEL`, `RET`, and `LOOP LABEL` for realistic control flow while running from disk.
 - `C:`, `D:`, `E:`, `F:` — switch the active drive.
 - `EXIT` — quit.
 
-Registers: `AX`, `BX`, `CX`, `DX`, `SP`, `BP`, `SI`, `DI`.
+Registers: `AX`, `BX`, `CX`, `DX`, `SP`, `BP`, `SI`, `DI`, `CS`, `DS`, `ES`, `SS`. Flags include zero, carry, sign, overflow, and direction.
 Numbers can be decimal or hexadecimal (`0x10`).
+
+## Program examples
+
+A full program can be written in one command with `PROGRAM FILE = ...`; separate program commands with `|`. Then run it with `RUN FILE`.
+
+### 1) Simple calculator: 12 + 30
+
+```text
+PROGRAM CALC.BAT = MOV AX 12 | ADD AX 30 | STORE AX 0x200 | PEEK 0x200
+DEBUG OFF
+RUN CALC.BAT
+```
+
+Expected output is the low byte of the result:
+
+```text
+0x2a
+```
+
+### 2) Loop: count down CX and leave AX = 5
+
+```text
+PROGRAM LOOP.BAT = MOV AX 0 | MOV CX 5 | AGAIN: INC AX | LOOP AGAIN | STORE AX 0x210 | PEEK 0x210
+DEBUG OFF
+RUN LOOP.BAT
+```
+
+### 3) Subroutine call: reusable addition
+
+```text
+PROGRAM SUB.BAT = MOV AX 7 | MOV BX 8 | CALL ADD_BX | STORE AX 0x220 | PEEK 0x220 | HLT | ADD_BX: ADD AX BX | RET
+DEBUG OFF
+RUN SUB.BAT
+```
+
+### 4) String copy with realistic direction flag
+
+```text
+PROGRAM STR.BAT = STRING 0x300 HELLO | MOV SI 0x300 | MOV DI 0x340 | CLD | MOV CX 6 | COPY: MOVSB | LOOP COPY | PRINT 0x340
+DEBUG OFF
+RUN STR.BAT
+```
+
+### 5) Simple I/O port demo
+
+```text
+PROGRAM PORT.BAT = OUT 0x20 65 | IN AX 0x20 | STORE AX 0x230 | PEEK 0x230
+DEBUG OFF
+RUN PORT.BAT
+```
 
 ## Example
 
