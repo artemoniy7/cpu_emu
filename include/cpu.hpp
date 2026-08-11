@@ -44,6 +44,7 @@ private:
     std::string okResult() const;
     std::string flagsResult() const;
     void updateZeroSign(std::uint16_t value);
+    void adjustStringIndex(const std::string& register_name, std::uint16_t width);
     
     void movsb();
     void movsw();
@@ -111,6 +112,8 @@ private:
     bool carry_ = false;
     bool sign_ = false;
     bool overflow_ = false;
+    bool direction_ = false;
+    std::array<std::uint8_t, 256> ports_{};
     bool debug_enabled_ = true;
     
     // Disk mapping

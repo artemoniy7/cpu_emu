@@ -26,10 +26,12 @@ Every entered command is executed immediately and the emulator now prints the re
 - `MOV R V` — copy a 16-bit value or another register into register `R`.
 - `XCHG R1 R2` — exchange two registers.
 - `PUSH V`, `POP R` — use the 16-bit stack through `SP`.
-- `ADD R V`, `SUB R V`, `CMP R V`, `NEG R`, `MUL V`, `DIV V` — arithmetic and comparison.
+- `ADD R V`, `ADC R V`, `SUB R V`, `SBB R V`, `CMP R V`, `NEG R`, `MUL V`, `IMUL V`, `DIV V`, `IDIV V` — arithmetic and comparison with carry/borrow and signed/unsigned multiply/divide.
 - `INC R`, `DEC R` — increment or decrement a register.
-- `NOP` — execute a no-operation instruction.
+- `CLC`, `STC`, `CMC`, `CLD`, `STD` — realistic flag-control instructions for carry and string direction.
+- `NOP`, `HLT` — no-operation and simulated halt instructions.
 - `LOAD R ADDR` — load a 16-bit word from storage into `R`.
+- `IN R PORT`, `OUT PORT V` — read/write byte-sized I/O ports, like a simple hardware bus.
 - `STORE R ADDR` — store register `R` as a 16-bit word.
 - `PEEK ADDR`, `POKE ADDR V` — read or write one byte.
 - `DUMP ADDR LEN` — print a memory range.
@@ -37,10 +39,11 @@ Every entered command is executed immediately and the emulator now prints the re
 - `DIR [PATH]`, `CD [PATH]`, `MD/MKDIR PATH`, `RD/RMDIR PATH` — DOS-like directory work.
 - `ECHO TEXT > FILE`, `TYPE FILE`, `COPY SRC DST`, `DEL FILE` — DOS-like file work.
 - `NEW FILE`, `APPEND FILE CMD`, `RUN/EXEC FILE` — create, store on disk, load, and run emulator programs.
+- Program files can use `LABEL:`, `JMP/JE/JNE/... LABEL`, `CALL LABEL`, `RET`, and `LOOP LABEL` for realistic control flow while running from disk.
 - `C:`, `D:`, `E:`, `F:` — switch the active drive.
 - `EXIT` — quit.
 
-Registers: `AX`, `BX`, `CX`, `DX`, `SP`, `BP`, `SI`, `DI`.
+Registers: `AX`, `BX`, `CX`, `DX`, `SP`, `BP`, `SI`, `DI`, `CS`, `DS`, `ES`, `SS`. Flags include zero, carry, sign, overflow, and direction.
 Numbers can be decimal or hexadecimal (`0x10`).
 
 ## Example
