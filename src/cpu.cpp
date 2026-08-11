@@ -7,9 +7,10 @@
 #include <unordered_map>
 #include <cctype>
 #include <cstdint>
+#include <utility>
 
-Cpu::Cpu(Storage& storage, std::vector<Disk*>& disks) 
-    : storage_(storage), disks_(disks) {
+Cpu::Cpu(Storage& storage, std::vector<Disk*>& disks, InputReader input_reader)
+    : storage_(storage), disks_(disks), input_reader_(std::move(input_reader)) {
     registers_.fill(0);
     registers_[SP] = 0xfffe;
     registers_[CS] = 0x0000;
@@ -88,6 +89,22 @@ std::string Cpu::execute(const std::string& line) {
     try {
         if (op == "HELP") return help();
         if (op == "EXIT" || op == "QUIT") return "EXIT";
+        if ((op == "DEBUG" || op == "DBG") && args.size() <= 2) {
+            if (args.size() == 1) {
+                return std::string("Debug output is ") + (debug_enabled_ ? "ON" : "OFF");
+            }
+
+            const auto mode = upper(args[1]);
+            if (mode == "ON" || mode == "1" || mode == "TRUE") {
+                debug_enabled_ = true;
+                return "Debug output enabled";
+            }
+            if (mode == "OFF" || mode == "0" || mode == "FALSE") {
+                debug_enabled_ = false;
+                return "Debug output disabled";
+            }
+            return "Usage: DEBUG ON|OFF";
+        }
         
         if (op == "REGS") {
             std::ostringstream out;
@@ -206,6 +223,10 @@ std::string Cpu::execute(const std::string& line) {
             return writeDisk(args[1], parseNumber(args[2]), data);
         }
         
+        if (op == "NOP" && args.size() == 1) {
+            return debug_enabled_ ? "No operation" : "OK";
+        }
+
         // Арифметические операции
         if ((op == "MOV" || op == "ADD" || op == "SUB" || op == "CMP") && args.size() == 3) {
             auto& dst = reg(args[1]);
@@ -227,13 +248,35 @@ std::string Cpu::execute(const std::string& line) {
                 if (op == "SUB") dst = uresult;
                 updateZeroSign(uresult);
                 if (op == "CMP") {
-                    return flags();
+                    return flagsResult();
                 }
             }
             updateZeroSign(dst);
-            return "OK " + flags();
+            return okResult();
         }
         
+        if (op == "XCHG" && args.size() == 3) {
+            auto& left = reg(args[1]);
+            auto& right = reg(args[2]);
+            std::swap(left, right);
+            return okResult();
+        }
+
+        if (op == "PUSH" && args.size() == 2) {
+            auto& sp = reg("SP");
+            sp = static_cast<std::uint16_t>(sp - 2);
+            storage_.write16(sp, readValue(args[1]));
+            return okResult();
+        }
+
+        if (op == "POP" && args.size() == 2) {
+            auto& dst = reg(args[1]);
+            auto& sp = reg("SP");
+            dst = storage_.read16(sp);
+            sp = static_cast<std::uint16_t>(sp + 2);
+            return okResult();
+        }
+
         // Инкремент/декремент
         if ((op == "INC" || op == "DEC") && args.size() == 2) {
             auto& value = reg(args[1]);
@@ -242,7 +285,7 @@ std::string Cpu::execute(const std::string& line) {
             overflow_ = (op == "INC" && old == 0x7fff) || (op == "DEC" && old == 0x8000);
             carry_ = (op == "INC" && old == 0xffff) || (op == "DEC" && old == 0x0000);
             updateZeroSign(value);
-            return "OK " + flags();
+            return okResult();
         }
         
         // Логические операции
@@ -255,7 +298,7 @@ std::string Cpu::execute(const std::string& line) {
             carry_ = false;
             overflow_ = false;
             updateZeroSign(dst);
-            return "OK " + flags();
+            return okResult();
         }
         
         if (op == "NOT" && args.size() == 2) {
@@ -264,7 +307,40 @@ std::string Cpu::execute(const std::string& line) {
             carry_ = false;
             overflow_ = false;
             updateZeroSign(dst);
-            return "OK " + flags();
+            return okResult();
+        }
+
+        if (op == "NEG" && args.size() == 2) {
+            auto& dst = reg(args[1]);
+            carry_ = dst != 0;
+            overflow_ = dst == 0x8000;
+            dst = static_cast<std::uint16_t>(-dst);
+            updateZeroSign(dst);
+            return okResult();
+        }
+
+        if (op == "MUL" && args.size() == 2) {
+            const auto result = static_cast<std::uint32_t>(reg("AX")) * readValue(args[1]);
+            reg("AX") = static_cast<std::uint16_t>(result & 0xffff);
+            reg("DX") = static_cast<std::uint16_t>((result >> 16) & 0xffff);
+            carry_ = overflow_ = reg("DX") != 0;
+            updateZeroSign(reg("AX"));
+            return okResult();
+        }
+
+        if (op == "DIV" && args.size() == 2) {
+            const auto divisor = readValue(args[1]);
+            if (divisor == 0) return "Error: division by zero";
+
+            const auto dividend = (static_cast<std::uint32_t>(reg("DX")) << 16) | reg("AX");
+            const auto quotient = dividend / divisor;
+            if (quotient > 0xffff) return "Error: division overflow";
+
+            reg("AX") = static_cast<std::uint16_t>(quotient);
+            reg("DX") = static_cast<std::uint16_t>(dividend % divisor);
+            carry_ = overflow_ = false;
+            updateZeroSign(reg("AX"));
+            return okResult();
         }
         
         if (op == "TEST" && args.size() == 3) {
@@ -274,7 +350,7 @@ std::string Cpu::execute(const std::string& line) {
             carry_ = false;
             overflow_ = false;
             updateZeroSign(result);
-            return flags();
+            return flagsResult();
         }
         
         // Условные переходы
@@ -294,40 +370,40 @@ std::string Cpu::execute(const std::string& line) {
                 out << "Jump to 0x" << std::hex << target;
                 return out.str();
             }
-            return "No jump (flags: " + flags() + ")";
+            return debug_enabled_ ? "No jump (flags: " + flags() + ")" : "No jump";
         }
         
         // Строковые операции
         if (op == "MOVSB" && args.size() == 1) {
             movsb();
-            return "OK " + flags();
+            return okResult();
         }
         
         if (op == "MOVSW" && args.size() == 1) {
             movsw();
-            return "OK " + flags();
+            return okResult();
         }
         
         if (op == "CMPSB" && args.size() == 1) {
             const bool equal = cmpsb();
             zero_ = equal;
-            return equal ? "Equal" : "Not equal " + flags();
+            return equal ? "Equal" : (debug_enabled_ ? "Not equal " + flags() : "Not equal");
         }
         
         if (op == "SCASB" && args.size() == 1) {
             const bool found = scasb();
             zero_ = found;
-            return found ? "Found" : "Not found " + flags();
+            return found ? "Found" : (debug_enabled_ ? "Not found " + flags() : "Not found");
         }
         
         if (op == "STOSB" && args.size() == 1) {
             stosb();
-            return "OK " + flags();
+            return okResult();
         }
         
         if (op == "LODSB" && args.size() == 1) {
             lodsb();
-            return "OK " + flags();
+            return okResult();
         }
         
         // REP префикс
@@ -367,7 +443,7 @@ std::string Cpu::execute(const std::string& line) {
             out << "REP " << subop << " executed " 
                 << (reg("CX") == 0 ? "all" : "stopped at count " + std::to_string(reg("CX")))
                 << " iterations";
-            return out.str() + " " + flags();
+            return debug_enabled_ ? out.str() + " " + flags() : out.str();
         }
         
         if ((op == "REPE" || op == "REPZ") && args.size() == 2) {
@@ -391,7 +467,7 @@ std::string Cpu::execute(const std::string& line) {
             zero_ = equal;
             std::ostringstream out;
             out << "REPE " << subop << " " << (equal ? "found match" : "stopped at mismatch");
-            return out.str() + " " + flags();
+            return debug_enabled_ ? out.str() + " " + flags() : out.str();
         }
         
         if ((op == "REPNE" || op == "REPNZ") && args.size() == 2) {
@@ -415,7 +491,7 @@ std::string Cpu::execute(const std::string& line) {
             zero_ = !not_equal;
             std::ostringstream out;
             out << "REPNE " << subop << " " << (!not_equal ? "found match" : "no match found");
-            return out.str() + " " + flags();
+            return debug_enabled_ ? out.str() + " " + flags() : out.str();
         }
         
         // Загрузка/сохранение в память
@@ -427,7 +503,7 @@ std::string Cpu::execute(const std::string& line) {
             } else {
                 storage_.write16(address, reg(args[1]));
             }
-            return "OK " + flags();
+            return okResult();
         }
         
         // Работа с байтами
@@ -479,13 +555,17 @@ std::string Cpu::execute(const std::string& line) {
             writeString(address, str);
             std::ostringstream out;
             out << "String '" << str << "' written at 0x" << std::hex << address;
-            return out.str();
+            return debug_enabled_ ? out.str() : "OK";
         }
         
         if (op == "PRINT" && args.size() == 2) {
             const auto address = readAddress(args[1]);
             const auto str = readString(address);
-            return "String: " + str;
+            return debug_enabled_ ? "String: " + str : str;
+        }
+
+        if (op == "INPUT" && args.size() == 2) {
+            return inputValue(readAddress(args[1]));
         }
         
         // Сдвиги
@@ -515,7 +595,7 @@ std::string Cpu::execute(const std::string& line) {
             }
             overflow_ = false;
             updateZeroSign(dst);
-            return "OK " + flags();
+            return okResult();
         }
         
         return "Unknown command or wrong argument count. Type HELP.";
@@ -1020,6 +1100,19 @@ void Cpu::writeString(std::uint32_t address, const std::string& str) {
     storage_.write8(address + str.length(), 0);
 }
 
+std::string Cpu::inputValue(std::uint32_t address) {
+    if (!input_reader_) {
+        return "Error: input is not available";
+    }
+
+    const auto value = input_reader_();
+    writeString(address, value);
+
+    std::ostringstream out;
+    out << "Input written at 0x" << std::hex << address;
+    return debug_enabled_ ? out.str() : "OK";
+}
+
 // Проверка условий для условных прыжков
 bool Cpu::checkCondition(const std::string& condition) {
     if (condition == "JMP") return true;
@@ -1142,6 +1235,14 @@ std::string Cpu::flags() const {
     return out.str();
 }
 
+std::string Cpu::okResult() const {
+    return debug_enabled_ ? "OK " + flags() : "OK";
+}
+
+std::string Cpu::flagsResult() const {
+    return debug_enabled_ ? flags() : "OK";
+}
+
 void Cpu::updateZeroSign(std::uint16_t value) {
     zero_ = value == 0;
     sign_ = (value & 0x8000) != 0;
@@ -1174,10 +1275,13 @@ std::string Cpu::help() const {
            "  READ X, SECTOR    - Read sector from disk X\n"
            "  WRITE X, SECTOR, data - Write data to sector\n"
            "\nREGISTER OPERATIONS:\n"
+           "  DEBUG/DBG ON|OFF  - Enable/disable debug output (enabled by default)\n"
            "  REGS              - Show all registers\n"
            "  RESET             - Reset CPU and clear memory\n"
            "\nDATA MOVEMENT:\n"
            "  MOV R, V          - Move value to register\n"
+           "  XCHG R1, R2       - Exchange two registers\n"
+           "  PUSH V / POP R    - Use the stack via SP\n"
            "  LOAD R, ADDR      - Load from memory\n"
            "  STORE R, ADDR     - Store to memory\n"
            "  PEEK ADDR         - Read byte\n"
@@ -1187,7 +1291,8 @@ std::string Cpu::help() const {
            "  INC/DEC R         - Increment/Decrement\n"
            "  CMP R, V          - Compare\n"
            "  AND/OR/XOR R, V   - Bitwise operations\n"
-           "  NOT R             - Bitwise NOT\n"
+           "  NOT/NEG R         - Bitwise NOT / two's-complement negate\n"
+           "  MUL V / DIV V     - Unsigned AX multiply/divide with DX\n"
            "  TEST R, V         - Test bits\n"
            "  SHL/SHR R, V      - Shift left/right\n"
            "  ROL/ROR R, V      - Rotate left/right\n"
@@ -1209,6 +1314,7 @@ std::string Cpu::help() const {
            "  ASCII \"text\"      - Show hex codes\n"
            "  CHAR V            - Show character\n"
            "  STRING ADDR \"text\" - Write string\n"
+           "  INPUT ADDR        - Read keyboard input into memory\n"
            "  PRINT ADDR        - Read string\n"
            "  DUMP ADDR, LEN    - Dump memory\n"
            "\nREGISTERS: AX BX CX DX SP BP SI DI CS DS ES SS\n"
@@ -1216,5 +1322,5 @@ std::string Cpu::help() const {
            "NUMBERS: decimal or 0xHEX\n"
            "MEMORY: [address] or register\n"
            "DISKS: C:, D:, E:, F:\n"
-           "\nSYSTEM: EXIT, QUIT, CLEAR, CLS\n";
+           "\nSYSTEM: NOP, EXIT, QUIT, CLEAR, CLS\n";
 }

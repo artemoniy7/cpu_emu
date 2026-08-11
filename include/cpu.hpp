@@ -10,10 +10,13 @@
 #include <unordered_map>
 #include <map>
 #include <memory>
+#include <functional>
 
 class Cpu {
 public:
-    explicit Cpu(Storage& storage, std::vector<Disk*>& disks);
+    using InputReader = std::function<std::string()>;
+
+    explicit Cpu(Storage& storage, std::vector<Disk*>& disks, InputReader input_reader = {});
 
     std::string execute(const std::string& line);
     std::string help() const;
@@ -38,6 +41,8 @@ private:
     static std::string upper(std::string value);
     static std::uint32_t parseNumber(const std::string& token);
     std::string flags() const;
+    std::string okResult() const;
+    std::string flagsResult() const;
     void updateZeroSign(std::uint16_t value);
     
     void movsb();
@@ -48,6 +53,7 @@ private:
     void lodsb();
     std::string readString(std::uint32_t address) const;
     void writeString(std::uint32_t address, const std::string& str);
+    std::string inputValue(std::uint32_t address);
     
     void setFlagsForComparison(int result);
     bool checkCondition(const std::string& condition);
@@ -99,11 +105,13 @@ private:
 
     Storage& storage_;
     std::vector<Disk*>& disks_;
+    InputReader input_reader_;
     std::array<std::uint16_t, RegisterCount> registers_{};
     bool zero_ = false;
     bool carry_ = false;
     bool sign_ = false;
     bool overflow_ = false;
+    bool debug_enabled_ = true;
     
     // Disk mapping
     std::unordered_map<char, size_t> disk_map_;

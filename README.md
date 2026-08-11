@@ -15,20 +15,25 @@ cmake --build build
 ./build/cpu_emu
 ```
 
-Every entered command is executed immediately and the emulator now prints the result directly under the prompt while keeping command history for the optional full-screen renderer. Files and programs are persisted into the emulated disk images, so they can be created, read back, and run later from inside the emulator.
+Every entered command is executed immediately and the emulator now prints the result directly under the prompt while keeping command history for the optional full-screen renderer. Debug output is enabled by default; use `DEBUG OFF` to hide flag/details-only responses while keeping operational output such as memory, disk, and plain `PRINT` results. Files and programs are persisted into the emulated disk images, so they can be created, read back, and run later from inside the emulator.
 
 ## Commands
 
 - `HELP` — show command list.
 - `REGS` — show all registers and flags.
 - `RESET` — clear CPU registers, flags, and storage.
+- `DEBUG ON`, `DEBUG OFF`, `DBG ON`, `DBG OFF` — enable or disable debug output; it is enabled by default.
 - `MOV R V` — copy a 16-bit value or another register into register `R`.
-- `ADD R V`, `SUB R V`, `CMP R V` — arithmetic and comparison.
+- `XCHG R1 R2` — exchange two registers.
+- `PUSH V`, `POP R` — use the 16-bit stack through `SP`.
+- `ADD R V`, `SUB R V`, `CMP R V`, `NEG R`, `MUL V`, `DIV V` — arithmetic and comparison.
 - `INC R`, `DEC R` — increment or decrement a register.
+- `NOP` — execute a no-operation instruction.
 - `LOAD R ADDR` — load a 16-bit word from storage into `R`.
 - `STORE R ADDR` — store register `R` as a 16-bit word.
 - `PEEK ADDR`, `POKE ADDR V` — read or write one byte.
 - `DUMP ADDR LEN` — print a memory range.
+- `INPUT ADDR` — wait for keyboard input and write the entered text or number to memory at `ADDR`.
 - `DIR [PATH]`, `CD [PATH]`, `MD/MKDIR PATH`, `RD/RMDIR PATH` — DOS-like directory work.
 - `ECHO TEXT > FILE`, `TYPE FILE`, `COPY SRC DST`, `DEL FILE` — DOS-like file work.
 - `NEW FILE`, `APPEND FILE CMD`, `RUN/EXEC FILE` — create, store on disk, load, and run emulator programs.
