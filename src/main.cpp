@@ -33,7 +33,9 @@ int main() {
             disk_letter++;
         }
         
-        Cpu cpu(storage, disks);
+        Cpu cpu(storage, disks, [&console]() {
+            return console.getCpuInput();
+        });
         
         console.printCpu("===== CPU Emulator v2.0 with Real Disk Support =====");
         console.printCpu("Disks available: C:, D:, E:, F:");

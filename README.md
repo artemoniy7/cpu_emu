@@ -30,6 +30,7 @@ Every entered command is executed immediately and the emulator now prints the re
 - `STORE R ADDR` — store register `R` as a 16-bit word.
 - `PEEK ADDR`, `POKE ADDR V` — read or write one byte.
 - `DUMP ADDR LEN` — print a memory range.
+- `INPUT ADDR` — wait for keyboard input and write the entered text or number to memory at `ADDR`.
 - `DIR [PATH]`, `CD [PATH]`, `MD/MKDIR PATH`, `RD/RMDIR PATH` — DOS-like directory work.
 - `ECHO TEXT > FILE`, `TYPE FILE`, `COPY SRC DST`, `DEL FILE` — DOS-like file work.
 - `NEW FILE`, `APPEND FILE CMD`, `RUN/EXEC FILE` — create, store on disk, load, and run emulator programs.

@@ -10,10 +10,13 @@
 #include <unordered_map>
 #include <map>
 #include <memory>
+#include <functional>
 
 class Cpu {
 public:
-    explicit Cpu(Storage& storage, std::vector<Disk*>& disks);
+    using InputReader = std::function<std::string()>;
+
+    explicit Cpu(Storage& storage, std::vector<Disk*>& disks, InputReader input_reader = {});
 
     std::string execute(const std::string& line);
     std::string help() const;
@@ -50,6 +53,7 @@ private:
     void lodsb();
     std::string readString(std::uint32_t address) const;
     void writeString(std::uint32_t address, const std::string& str);
+    std::string inputValue(std::uint32_t address);
     
     void setFlagsForComparison(int result);
     bool checkCondition(const std::string& condition);
@@ -101,6 +105,7 @@ private:
 
     Storage& storage_;
     std::vector<Disk*>& disks_;
+    InputReader input_reader_;
     std::array<std::uint16_t, RegisterCount> registers_{};
     bool zero_ = false;
     bool carry_ = false;

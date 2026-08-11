@@ -7,9 +7,10 @@
 #include <unordered_map>
 #include <cctype>
 #include <cstdint>
+#include <utility>
 
-Cpu::Cpu(Storage& storage, std::vector<Disk*>& disks) 
-    : storage_(storage), disks_(disks) {
+Cpu::Cpu(Storage& storage, std::vector<Disk*>& disks, InputReader input_reader)
+    : storage_(storage), disks_(disks), input_reader_(std::move(input_reader)) {
     registers_.fill(0);
     registers_[SP] = 0xfffe;
     registers_[CS] = 0x0000;
@@ -502,6 +503,10 @@ std::string Cpu::execute(const std::string& line) {
             const auto address = readAddress(args[1]);
             const auto str = readString(address);
             return debug_enabled_ ? "String: " + str : str;
+        }
+
+        if (op == "INPUT" && args.size() == 2) {
+            return inputValue(readAddress(args[1]));
         }
         
         // Сдвиги
@@ -1036,6 +1041,19 @@ void Cpu::writeString(std::uint32_t address, const std::string& str) {
     storage_.write8(address + str.length(), 0);
 }
 
+std::string Cpu::inputValue(std::uint32_t address) {
+    if (!input_reader_) {
+        return "Error: input is not available";
+    }
+
+    const auto value = input_reader_();
+    writeString(address, value);
+
+    std::ostringstream out;
+    out << "Input written at 0x" << std::hex << address;
+    return debug_enabled_ ? out.str() : "OK";
+}
+
 // Проверка условий для условных прыжков
 bool Cpu::checkCondition(const std::string& condition) {
     if (condition == "JMP") return true;
@@ -1234,6 +1252,7 @@ std::string Cpu::help() const {
            "  ASCII \"text\"      - Show hex codes\n"
            "  CHAR V            - Show character\n"
            "  STRING ADDR \"text\" - Write string\n"
+           "  INPUT ADDR        - Read keyboard input into memory\n"
            "  PRINT ADDR        - Read string\n"
            "  DUMP ADDR, LEN    - Dump memory\n"
            "\nREGISTERS: AX BX CX DX SP BP SI DI CS DS ES SS\n"
