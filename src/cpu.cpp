@@ -25,6 +25,7 @@ Cpu::Cpu(Storage& storage, std::vector<Disk*>& disks)
         if (letter == 'C') letter = 'D';
         else letter++;
     }
+    loadFilesystemsFromDisks();
 }
 
 Cpu::ArgType Cpu::detectArgType(const std::string& token) const {
@@ -149,6 +150,19 @@ std::string Cpu::execute(const std::string& line) {
 
         if (op == "COPY" && args.size() == 3) {
             return copyFile(args[1], args[2]);
+        }
+
+
+        if ((op == "NEW" || op == "PROGRAM") && args.size() == 2) {
+            return createProgram(args[1]);
+        }
+
+        if ((op == "APPEND" || op == "LINE") && args.size() >= 3) {
+            return appendProgramLine(args[1], joinArgs(args, 2));
+        }
+
+        if ((op == "RUN" || op == "EXEC") && args.size() == 2) {
+            return runProgram(args[1]);
         }
 
         if (op == "ECHO" && args.size() >= 2) {
@@ -617,6 +631,7 @@ std::string Cpu::makeDirectory(const std::string& path) {
     auto node = std::make_unique<FsNode>();
     node->directory = true;
     parent->children[leaf] = std::move(node);
+    persistCurrentFs();
     return "Directory created";
 }
 
@@ -628,6 +643,7 @@ std::string Cpu::removeDirectory(const std::string& path) {
     if (it == parent->children.end() || !it->second->directory) return "Invalid directory";
     if (!it->second->children.empty()) return "The directory is not empty";
     parent->children.erase(it);
+    persistCurrentFs();
     return "Directory removed";
 }
 
@@ -639,6 +655,7 @@ std::string Cpu::writeFile(const std::string& path, const std::string& content, 
     if (!slot) { slot = std::make_unique<FsNode>(); slot->directory = false; }
     if (slot->directory) return "Access denied";
     if (append) slot->content += content; else slot->content = content;
+    persistCurrentFs();
     return "1 file(s) written";
 }
 
@@ -655,6 +672,7 @@ std::string Cpu::deleteFile(const std::string& path) {
     auto it = parent->children.find(leaf);
     if (it == parent->children.end() || it->second->directory) return "File Not Found";
     parent->children.erase(it);
+    persistCurrentFs();
     return "1 file(s) deleted";
 }
 
@@ -670,6 +688,143 @@ std::string Cpu::joinArgs(const std::vector<std::string>& args, std::size_t firs
     for (std::size_t i = first; i < args.size(); ++i) {
         if (i > first) out += ' ';
         out += args[i];
+    }
+    return out;
+}
+
+std::string Cpu::createProgram(const std::string& path) {
+    const auto result = writeFile(path, "", false);
+    return result == "1 file(s) written" ? "Program file created" : result;
+}
+
+std::string Cpu::appendProgramLine(const std::string& path, const std::string& command) {
+    if (command.empty()) return "The syntax of the command is incorrect.";
+    const auto result = writeFile(path, command + "\n", true);
+    return result == "1 file(s) written" ? "Program line added" : result;
+}
+
+std::string Cpu::runProgram(const std::string& path) {
+    const FsNode* node = resolveNode(path);
+    if (!node || node->directory) return "Program not found";
+
+    std::istringstream input(node->content);
+    std::ostringstream out;
+    std::string command;
+    std::size_t executed = 0;
+    static constexpr std::size_t kMaxProgramCommands = 1000;
+
+    out << "Running " << path << " from " << currentDriveName() << "\n";
+    while (std::getline(input, command)) {
+        command.erase(0, command.find_first_not_of(" \t\r\n"));
+        const auto end = command.find_last_not_of(" \t\r\n");
+        if (end == std::string::npos) continue;
+        command.erase(end + 1);
+        if (command.empty() || command[0] == ';' || command[0] == '#') continue;
+        if (++executed > kMaxProgramCommands) {
+            out << "Program stopped: command limit reached";
+            return out.str();
+        }
+        const auto result = execute(command);
+        out << "> " << command << "\n" << result << "\n";
+        if (upper(command) == "EXIT" || upper(command) == "QUIT") break;
+    }
+    out << "Program finished: " << executed << " command(s) executed";
+    return out.str();
+}
+
+void Cpu::persistCurrentFs() {
+    persistFs(current_drive_);
+}
+
+void Cpu::persistFs(char drive) {
+    auto diskIt = disk_map_.find(drive);
+    auto fsIt = filesystems_.find(drive);
+    if (diskIt == disk_map_.end() || fsIt == filesystems_.end() || diskIt->second >= disks_.size()) return;
+    Disk* disk = disks_[diskIt->second];
+    if (!disk || !disk->isMounted()) return;
+
+    std::ostringstream serialized;
+    serialized << "EMUFS1\n";
+    serializeNode(serialized, fsIt->second.root, "");
+    const auto data = serialized.str();
+    const auto maxBytes = static_cast<std::size_t>((Disk::NUM_SECTORS - 1) * Disk::SECTOR_SIZE);
+    if (data.size() > maxBytes) throw std::runtime_error("emulated file system is full");
+
+    std::size_t offset = 0;
+    for (std::uint32_t sector = 1; sector < Disk::NUM_SECTORS && offset < data.size(); ++sector) {
+        std::vector<uint8_t> bytes(Disk::SECTOR_SIZE, 0);
+        const auto chunk = std::min<std::size_t>(Disk::SECTOR_SIZE, data.size() - offset);
+        std::copy_n(data.begin() + static_cast<std::ptrdiff_t>(offset), chunk, bytes.begin());
+        disk->writeSector(sector, bytes);
+        offset += chunk;
+    }
+}
+
+void Cpu::loadFilesystemsFromDisks() {
+    for (const auto& [drive, index] : disk_map_) {
+        if (index >= disks_.size() || !disks_[index] || !disks_[index]->isMounted()) continue;
+        std::string data;
+        for (std::uint32_t sector = 1; sector < Disk::NUM_SECTORS; ++sector) {
+            auto bytes = disks_[index]->readSector(sector);
+            for (auto byte : bytes) {
+                if (byte == 0) {
+                    sector = Disk::NUM_SECTORS;
+                    break;
+                }
+                data += static_cast<char>(byte);
+            }
+        }
+        if (data.rfind("EMUFS1\n", 0) == 0) deserializeFs(drive, data);
+    }
+}
+
+void Cpu::serializeNode(std::ostringstream& out, const FsNode& node, const std::string& path) const {
+    for (const auto& [name, child] : node.children) {
+        const auto childPath = path.empty() ? name : path + "\\" + name;
+        if (child->directory) {
+            out << "D|" << childPath << "\n";
+            serializeNode(out, *child, childPath);
+        } else {
+            out << "F|" << childPath << "|" << hexEncode(child->content) << "\n";
+        }
+    }
+}
+
+void Cpu::deserializeFs(char drive, const std::string& data) {
+    auto& fs = filesystems_[drive];
+    fs.root.children.clear();
+    std::istringstream input(data);
+    std::string line;
+    std::getline(input, line); // signature
+    while (std::getline(input, line)) {
+        if (line.size() < 3 || line[1] != '|') continue;
+        const char type = line[0];
+        if (type == 'D') {
+            const char previousDrive = current_drive_;
+            current_drive_ = drive;
+            makeDirectory(line.substr(2));
+            current_drive_ = previousDrive;
+        } else if (type == 'F') {
+            const auto sep = line.find('|', 2);
+            if (sep == std::string::npos) continue;
+            const char previousDrive = current_drive_;
+            current_drive_ = drive;
+            writeFile(line.substr(2, sep - 2), hexDecode(line.substr(sep + 1)), false);
+            current_drive_ = previousDrive;
+        }
+    }
+}
+
+std::string Cpu::hexEncode(const std::string& data) {
+    std::ostringstream out;
+    for (unsigned char c : data) out << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
+    return out.str();
+}
+
+std::string Cpu::hexDecode(const std::string& hex) {
+    std::string out;
+    for (std::size_t i = 0; i + 1 < hex.size(); i += 2) {
+        out += static_cast<char>(std::stoul(hex.substr(i, 2), nullptr, 16));
     }
     return out;
 }
@@ -698,8 +853,9 @@ std::string Cpu::formatDisk(const std::string& diskName) {
     if (diskName.empty()) {
         return "Error: No disk specified";
     }
+    const char drive = static_cast<char>(std::toupper(static_cast<unsigned char>(diskName[0])));
     
-    auto it = disk_map_.find(diskName[0]);
+    auto it = disk_map_.find(drive);
     if (it == disk_map_.end()) {
         return "Error: Disk " + diskName + " not found";
     }
@@ -711,6 +867,9 @@ std::string Cpu::formatDisk(const std::string& diskName) {
     try {
         disks_[it->second]->format();
         disks_[it->second]->mount();
+        filesystems_[drive].root.children.clear();
+        filesystems_[drive].cwd.clear();
+        persistFs(drive);
         return "Disk " + diskName + " formatted and mounted successfully";
     } catch (const std::exception& e) {
         return std::string("Error formatting disk: ") + e.what();
@@ -1006,6 +1165,9 @@ std::string Cpu::help() const {
            "  TYPE FILE         - Print file contents\n"
            "  COPY SRC DST      - Copy file\n"
            "  DEL/ERASE FILE    - Delete file\n"
+           "  NEW FILE          - Create an empty program file\n"
+           "  APPEND FILE CMD   - Add one command to a program\n"
+           "  RUN/EXEC FILE     - Load and execute a program from disk\n"
            "\nDISK OPERATIONS:\n"
            "  DISKS             - Show all available disks\n"
            "  FORMAT X          - Format disk X (C, D, E, or F)\n"

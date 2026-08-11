@@ -86,6 +86,16 @@ private:
     std::string deleteFile(const std::string& path);
     std::string copyFile(const std::string& from, const std::string& to);
     std::string joinArgs(const std::vector<std::string>& args, std::size_t first) const;
+    std::string createProgram(const std::string& path);
+    std::string appendProgramLine(const std::string& path, const std::string& command);
+    std::string runProgram(const std::string& path);
+    void persistCurrentFs();
+    void persistFs(char drive);
+    void loadFilesystemsFromDisks();
+    void serializeNode(std::ostringstream& out, const FsNode& node, const std::string& path) const;
+    void deserializeFs(char drive, const std::string& data);
+    static std::string hexEncode(const std::string& data);
+    static std::string hexDecode(const std::string& hex);
 
     Storage& storage_;
     std::vector<Disk*>& disks_;

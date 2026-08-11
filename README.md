@@ -15,7 +15,7 @@ cmake --build build
 ./build/cpu_emu
 ```
 
-Every entered command is executed immediately and the emulator now prints the result directly under the prompt while keeping command history for the optional full-screen renderer.
+Every entered command is executed immediately and the emulator now prints the result directly under the prompt while keeping command history for the optional full-screen renderer. Files and programs are persisted into the emulated disk images, so they can be created, read back, and run later from inside the emulator.
 
 ## Commands
 
@@ -31,6 +31,7 @@ Every entered command is executed immediately and the emulator now prints the re
 - `DUMP ADDR LEN` — print a memory range.
 - `DIR [PATH]`, `CD [PATH]`, `MD/MKDIR PATH`, `RD/RMDIR PATH` — DOS-like directory work.
 - `ECHO TEXT > FILE`, `TYPE FILE`, `COPY SRC DST`, `DEL FILE` — DOS-like file work.
+- `NEW FILE`, `APPEND FILE CMD`, `RUN/EXEC FILE` — create, store on disk, load, and run emulator programs.
 - `C:`, `D:`, `E:`, `F:` — switch the active drive.
 - `EXIT` — quit.
 
