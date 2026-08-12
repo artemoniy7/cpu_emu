@@ -250,6 +250,19 @@ std::string Cpu::execute(const std::string& line) {
             return "CPU halted (simulation only; enter EXIT to leave monitor)";
         }
 
+        if ((op == "CLC" || op == "STC" || op == "CMC" || op == "CLD" || op == "STD") && args.size() == 1) {
+            if (op == "CLC") carry_ = false;
+            if (op == "STC") carry_ = true;
+            if (op == "CMC") carry_ = !carry_;
+            if (op == "CLD") direction_ = false;
+            if (op == "STD") direction_ = true;
+            return flagsResult();
+        }
+
+        if (op == "HLT" && args.size() == 1) {
+            return "CPU halted (simulation only; enter EXIT to leave monitor)";
+        }
+
         // Арифметические операции
         if ((op == "MOV" || op == "ADD" || op == "ADC" || op == "SUB" || op == "SBB" || op == "CMP") && args.size() == 3) {
             auto& dst = reg(args[1]);
