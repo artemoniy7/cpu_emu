@@ -176,8 +176,16 @@ std::string Cpu::execute(const std::string& line) {
             return createProgram(args[1]);
         }
 
+        if ((op == "PROGRAM" || op == "SCRIPT" || op == "BATCH") && args.size() >= 4 && args[2] == "=") {
+            return writeProgramBlock(args[1], joinArgs(args, 3), false);
+        }
+
         if ((op == "APPEND" || op == "LINE") && args.size() >= 3) {
             return appendProgramLine(args[1], joinArgs(args, 2));
+        }
+
+        if ((op == "APPENDPROGRAM" || op == "APPENDSCRIPT") && args.size() >= 3) {
+            return writeProgramBlock(args[1], joinArgs(args, 2), true);
         }
 
         if ((op == "RUN" || op == "EXEC") && args.size() == 2) {
@@ -226,7 +234,20 @@ std::string Cpu::execute(const std::string& line) {
         }
         
         if (op == "NOP" && args.size() == 1) {
-            return debug_enabled_ ? "No operation" : "OK";
+            return debug_enabled_ ? "No operation" : "";
+        }
+
+        if ((op == "CLC" || op == "STC" || op == "CMC" || op == "CLD" || op == "STD") && args.size() == 1) {
+            if (op == "CLC") carry_ = false;
+            if (op == "STC") carry_ = true;
+            if (op == "CMC") carry_ = !carry_;
+            if (op == "CLD") direction_ = false;
+            if (op == "STD") direction_ = true;
+            return flagsResult();
+        }
+
+        if (op == "HLT" && args.size() == 1) {
+            return "CPU halted (simulation only; enter EXIT to leave monitor)";
         }
 
         if ((op == "CLC" || op == "STC" || op == "CMC" || op == "CLD" || op == "STD") && args.size() == 1) {
@@ -412,7 +433,7 @@ std::string Cpu::execute(const std::string& line) {
                 out << "Jump to 0x" << std::hex << target;
                 return out.str();
             }
-            return debug_enabled_ ? "No jump (flags: " + flags() + ")" : "No jump";
+            return debug_enabled_ ? "No jump (flags: " + flags() + ")" : "";
         }
         
         // Строковые операции
@@ -429,13 +450,13 @@ std::string Cpu::execute(const std::string& line) {
         if (op == "CMPSB" && args.size() == 1) {
             const bool equal = cmpsb();
             zero_ = equal;
-            return equal ? "Equal" : (debug_enabled_ ? "Not equal " + flags() : "Not equal");
+            return debug_enabled_ ? (equal ? "Equal" : "Not equal " + flags()) : "";
         }
         
         if (op == "SCASB" && args.size() == 1) {
             const bool found = scasb();
             zero_ = found;
-            return found ? "Found" : (debug_enabled_ ? "Not found " + flags() : "Not found");
+            return debug_enabled_ ? (found ? "Found" : "Not found " + flags()) : "";
         }
         
         if (op == "STOSB" && args.size() == 1) {
@@ -485,7 +506,7 @@ std::string Cpu::execute(const std::string& line) {
             out << "REP " << subop << " executed " 
                 << (reg("CX") == 0 ? "all" : "stopped at count " + std::to_string(reg("CX")))
                 << " iterations";
-            return debug_enabled_ ? out.str() + " " + flags() : out.str();
+            return debug_enabled_ ? out.str() + " " + flags() : "";
         }
         
         if ((op == "REPE" || op == "REPZ") && args.size() == 2) {
@@ -509,7 +530,7 @@ std::string Cpu::execute(const std::string& line) {
             zero_ = equal;
             std::ostringstream out;
             out << "REPE " << subop << " " << (equal ? "found match" : "stopped at mismatch");
-            return debug_enabled_ ? out.str() + " " + flags() : out.str();
+            return debug_enabled_ ? out.str() + " " + flags() : "";
         }
         
         if ((op == "REPNE" || op == "REPNZ") && args.size() == 2) {
@@ -533,7 +554,7 @@ std::string Cpu::execute(const std::string& line) {
             zero_ = !not_equal;
             std::ostringstream out;
             out << "REPNE " << subop << " " << (!not_equal ? "found match" : "no match found");
-            return debug_enabled_ ? out.str() + " " + flags() : out.str();
+            return debug_enabled_ ? out.str() + " " + flags() : "";
         }
         
         if (op == "IN" && args.size() == 3) {
@@ -551,7 +572,7 @@ std::string Cpu::execute(const std::string& line) {
                 out << "OK port[0x" << std::hex << std::setw(2) << std::setfill('0') << port << "] updated " << flags();
                 return out.str();
             }
-            return "OK";
+            return "";
         }
 
         // Загрузка/сохранение в память
@@ -569,7 +590,7 @@ std::string Cpu::execute(const std::string& line) {
         // Работа с байтами
         if (op == "POKE" && args.size() == 3) {
             storage_.write8(readAddress(args[1]), static_cast<std::uint8_t>(readValue(args[2]) & 0xff));
-            return "OK";
+            return debug_enabled_ ? "OK" : "";
         }
         
         if (op == "PEEK" && args.size() == 2) {
@@ -615,7 +636,7 @@ std::string Cpu::execute(const std::string& line) {
             writeString(address, str);
             std::ostringstream out;
             out << "String '" << str << "' written at 0x" << std::hex << address;
-            return debug_enabled_ ? out.str() : "OK";
+            return debug_enabled_ ? out.str() : "";
         }
         
         if (op == "PRINT" && args.size() == 2) {
@@ -844,6 +865,58 @@ std::string Cpu::appendProgramLine(const std::string& path, const std::string& c
     return result == "1 file(s) written" ? "Program line added" : result;
 }
 
+std::string Cpu::writeProgramBlock(const std::string& path, const std::string& block, bool append) {
+    const auto commands = splitProgramBlock(block);
+    if (commands.empty()) return "The syntax of the command is incorrect.";
+
+    std::ostringstream content;
+    for (const auto& command : commands) {
+        content << command << "\n";
+    }
+
+    const auto result = writeFile(path, content.str(), append);
+    if (result != "1 file(s) written") return result;
+
+    std::ostringstream out;
+    out << commands.size() << " program line(s) " << (append ? "appended" : "written");
+    return out.str();
+}
+
+std::vector<std::string> Cpu::splitProgramBlock(const std::string& block) {
+    std::vector<std::string> commands;
+    std::string current;
+    bool in_quotes = false;
+
+    for (char ch : block) {
+        if (ch == '"') {
+            in_quotes = !in_quotes;
+            current += ch;
+            continue;
+        }
+
+        if (ch == '|' && !in_quotes) {
+            current.erase(0, current.find_first_not_of(" \t\r\n"));
+            const auto end = current.find_last_not_of(" \t\r\n");
+            if (end != std::string::npos) {
+                current.erase(end + 1);
+                if (!current.empty()) commands.push_back(current);
+            }
+            current.clear();
+            continue;
+        }
+
+        current += ch;
+    }
+
+    current.erase(0, current.find_first_not_of(" \t\r\n"));
+    const auto end = current.find_last_not_of(" \t\r\n");
+    if (end != std::string::npos) {
+        current.erase(end + 1);
+        if (!current.empty()) commands.push_back(current);
+    }
+    return commands;
+}
+
 std::string Cpu::runProgram(const std::string& path) {
     const FsNode* node = resolveNode(path);
     if (!node || node->directory) return "Program not found";
@@ -888,7 +961,7 @@ std::string Cpu::runProgram(const std::string& path) {
         return true;
     };
 
-    out << "Running " << path << " from " << currentDriveName() << "\n";
+    if (debug_enabled_) out << "Running " << path << " from " << currentDriveName() << "\n";
     while (pc < lines.size()) {
         if (++executed > kMaxProgramCommands) {
             out << "Program stopped: command limit reached";
@@ -898,7 +971,7 @@ std::string Cpu::runProgram(const std::string& path) {
         const auto command = lines[pc];
         const auto args = split(command);
         const auto op = args.empty() ? std::string{} : upper(args[0]);
-        out << "> " << command << "\n";
+        if (debug_enabled_) out << "> " << command << "\n";
 
         if ((op == "JMP" || op == "JE" || op == "JZ" || op == "JNE" || op == "JNZ" ||
              op == "JG" || op == "JNLE" || op == "JL" || op == "JNGE" ||
@@ -910,10 +983,10 @@ std::string Cpu::runProgram(const std::string& path) {
             std::size_t destination = pc;
             if (checkCondition(op)) {
                 jumpTo(args[1], destination);
-                out << "Jump to " << args[1] << "\n";
+                if (debug_enabled_) out << "Jump to " << args[1] << "\n";
                 pc = destination;
             } else {
-                out << (debug_enabled_ ? "No jump (flags: " + flags() + ")" : "No jump") << "\n";
+                if (debug_enabled_) out << "No jump (flags: " << flags() << ")\n";
                 ++pc;
             }
             continue;
@@ -924,10 +997,10 @@ std::string Cpu::runProgram(const std::string& path) {
             if (reg("CX") != 0) {
                 std::size_t destination = pc;
                 jumpTo(args[1], destination);
-                out << "Loop to " << args[1] << " (CX=" << reg("CX") << ")\n";
+                if (debug_enabled_) out << "Loop to " << args[1] << " (CX=" << reg("CX") << ")\n";
                 pc = destination;
             } else {
-                out << "Loop finished (CX=0)\n";
+                if (debug_enabled_) out << "Loop finished (CX=0)\n";
                 ++pc;
             }
             continue;
@@ -937,7 +1010,7 @@ std::string Cpu::runProgram(const std::string& path) {
             std::size_t destination = pc;
             jumpTo(args[1], destination);
             call_stack.push_back(pc + 1);
-            out << "Call " << args[1] << "\n";
+            if (debug_enabled_) out << "Call " << args[1] << "\n";
             pc = destination;
             continue;
         }
@@ -946,17 +1019,17 @@ std::string Cpu::runProgram(const std::string& path) {
             if (call_stack.empty()) return out.str() + "Error: return stack is empty";
             pc = call_stack.back();
             call_stack.pop_back();
-            out << "Return\n";
+            if (debug_enabled_) out << "Return\n";
             continue;
         }
 
         const auto result = execute(command);
-        out << result << "\n";
+        if (!result.empty()) out << result << "\n";
         if (op == "HLT") break;
         if (op == "EXIT" || op == "QUIT") break;
         ++pc;
     }
-    out << "Program finished: " << executed << " command(s) executed";
+    if (debug_enabled_) out << "Program finished: " << executed << " command(s) executed";
     return out.str();
 }
 
@@ -1258,7 +1331,7 @@ std::string Cpu::inputValue(std::uint32_t address) {
 
     std::ostringstream out;
     out << "Input written at 0x" << std::hex << address;
-    return debug_enabled_ ? out.str() : "OK";
+    return debug_enabled_ ? out.str() : "";
 }
 
 // Проверка условий для условных прыжков
@@ -1384,11 +1457,11 @@ std::string Cpu::flags() const {
 }
 
 std::string Cpu::okResult() const {
-    return debug_enabled_ ? "OK " + flags() : "OK";
+    return debug_enabled_ ? "OK " + flags() : "";
 }
 
 std::string Cpu::flagsResult() const {
-    return debug_enabled_ ? flags() : "OK";
+    return debug_enabled_ ? flags() : "";
 }
 
 void Cpu::updateZeroSign(std::uint16_t value) {
@@ -1421,6 +1494,8 @@ std::string Cpu::help() const {
            "  DEL/ERASE FILE    - Delete file\n"
            "  NEW FILE          - Create an empty program file\n"
            "  APPEND FILE CMD   - Add one command to a program\n"
+           "  PROGRAM FILE = A | B - Write a whole program in one line\n"
+           "  APPENDPROGRAM FILE A | B - Append several commands\n"
            "  RUN/EXEC FILE     - Load and execute a program from disk\n"
            "  LABEL: / JMP LABEL - Use labels for real program flow\n"
            "  CALL LABEL / RET   - Subroutine call and return in RUN\n"
@@ -1431,7 +1506,7 @@ std::string Cpu::help() const {
            "  READ X, SECTOR    - Read sector from disk X\n"
            "  WRITE X, SECTOR, data - Write data to sector\n"
            "\nREGISTER OPERATIONS:\n"
-           "  DEBUG/DBG ON|OFF  - Enable/disable debug output (enabled by default)\n"
+           "  DEBUG/DBG ON|OFF  - Enable/disable debug output; OFF hides service output\n"
            "  REGS              - Show all registers\n"
            "  RESET             - Reset CPU and clear memory\n"
            "\nDATA MOVEMENT:\n"

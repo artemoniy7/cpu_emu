@@ -80,13 +80,11 @@ int main() {
                 continue;
             }
             
-            // Execute CPU command (pass original line, CPU will handle case)
+            // Execute CPU command (pass original line, CPU will handle case).
+            // Empty results are intentional when DEBUG OFF suppresses service output.
             const auto result = cpu.execute(line);
-            console.addCpuHistory(line, result);
-            
-            // Debug: if result is empty, show something
-            if (result.empty()) {
-                console.printCpu("  (Command returned empty result)");
+            if (!result.empty()) {
+                console.addCpuHistory(line, result);
             }
         }
         

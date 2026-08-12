@@ -95,6 +95,8 @@ private:
     std::string joinArgs(const std::vector<std::string>& args, std::size_t first) const;
     std::string createProgram(const std::string& path);
     std::string appendProgramLine(const std::string& path, const std::string& command);
+    std::string writeProgramBlock(const std::string& path, const std::string& block, bool append);
+    static std::vector<std::string> splitProgramBlock(const std::string& block);
     std::string runProgram(const std::string& path);
     void persistCurrentFs();
     void persistFs(char drive);
